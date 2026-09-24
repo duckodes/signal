@@ -6,6 +6,13 @@ const elements = {
 	scanButton: document.querySelector('#scan-button'),
 	completeButton: document.querySelector('#complete-button'),
 	missionProofInput: document.querySelector('#mission-proof-input'),
+	cameraModal: document.querySelector('#camera-modal'),
+	cameraPreview: document.querySelector('#camera-preview'),
+	cameraCanvas: document.querySelector('#camera-canvas'),
+	cameraStatus: document.querySelector('#camera-status'),
+	cameraCapture: document.querySelector('#camera-capture'),
+	cameraFallback: document.querySelector('#camera-fallback'),
+	cameraClose: document.querySelector('#camera-close'),
 	locationMessage: document.querySelector('#location-message'),
 	syncLabel: document.querySelector('#sync-label'),
 	coordinates: document.querySelector('#coordinates'),
@@ -64,6 +71,7 @@ const state = {
 	toastTimer: null
 	, locationRetry: false
 	, seenMissionTitles: []
+	, cameraStream: null
 };
 
 function formatCoordinate(value, positive, negative) {
@@ -510,7 +518,53 @@ async function verifyMissionPhoto(file) {
 
 function completeMission() {
 	if (!state.mission || elements.completeButton.disabled) return;
-	elements.missionProofInput.click();
+	openCamera();
+}
+
+function stopCamera() {
+	if (state.cameraStream) {
+		state.cameraStream.getTracks().forEach(track => track.stop());
+		state.cameraStream = null;
+	}
+	elements.cameraPreview.srcObject = null;
+	elements.cameraCapture.disabled = true;
+}
+
+function closeCamera() {
+	stopCamera();
+	elements.cameraModal.classList.add('is-hidden');
+}
+
+async function openCamera() {
+	elements.cameraModal.classList.remove('is-hidden');
+	elements.cameraStatus.textContent = '正在啟動相機...';
+	try {
+		if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器不支援頁面相機');
+		state.cameraStream = await navigator.mediaDevices.getUserMedia({
+			video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+			audio: false
+		});
+		elements.cameraPreview.srcObject = state.cameraStream;
+		await elements.cameraPreview.play();
+		elements.cameraStatus.textContent = '確認畫面後拍攝任務證明';
+		elements.cameraCapture.disabled = false;
+	} catch (error) {
+		elements.cameraStatus.textContent = '無法開啟頁面相機，請改用選擇照片。';
+		showToast('相機權限被拒絕或目前環境不支援，已提供照片上傳。', 'error');
+	}
+}
+
+function captureCameraPhoto() {
+	if (!state.cameraStream || !elements.cameraPreview.videoWidth) return;
+	const canvas = elements.cameraCanvas;
+	canvas.width = elements.cameraPreview.videoWidth;
+	canvas.height = elements.cameraPreview.videoHeight;
+	canvas.getContext('2d').drawImage(elements.cameraPreview, 0, 0, canvas.width, canvas.height);
+	canvas.toBlob(blob => {
+		if (!blob) return;
+		closeCamera();
+		verifyMissionPhoto(new File([blob], 'mission-proof.jpg', { type: 'image/jpeg' }));
+	}, 'image/jpeg', .88);
 }
 
 function showToast(message, type = 'success') {
@@ -523,9 +577,15 @@ function showToast(message, type = 'success') {
 elements.locationButton.addEventListener('click', requestLocation);
 elements.scanButton.addEventListener('click', scanSignal);
 elements.completeButton.addEventListener('click', completeMission);
+elements.cameraCapture.addEventListener('click', captureCameraPhoto);
+elements.cameraClose.addEventListener('click', closeCamera);
+elements.cameraFallback.addEventListener('click', () => elements.missionProofInput.click());
 elements.missionProofInput.addEventListener('change', event => {
 	const [file] = event.target.files;
-	if (file) verifyMissionPhoto(file);
+	if (file) {
+		closeCamera();
+		verifyMissionPhoto(file);
+	}
 	event.target.value = '';
 });
 elements.navigateButton.addEventListener('click', toggleNavigation);
