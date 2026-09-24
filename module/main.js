@@ -146,9 +146,13 @@ function updateNavigation(position, keepCenteredView = false) {
 	if (state.navigationArrow) state.navigationArrow.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow?.setIcon) state.navigationArrow.setIcon(window.L.divIcon({ className: 'navigation-arrow', html: `<span style="transform: rotate(${displayBearing}deg)"></span>`, iconSize: [42, 42], iconAnchor: [21, 21] }));
 	if (state.navigationActive && state.map && !state.manualPan && !keepCenteredView) {
-		const lookAhead = Math.min(100, Math.max(65, remaining * 0.45));
-		const camera = destinationPoint(current.latitude, current.longitude, lookAhead, displayBearing);
-		state.map.setView([camera.latitude, camera.longitude], 18, { animate: true });
+		if (state.navigationCenterOnUser) {
+			state.map.setView([current.latitude, current.longitude], 18, { animate: false });
+		} else {
+			const lookAhead = Math.min(100, Math.max(65, remaining * 0.45));
+			const camera = destinationPoint(current.latitude, current.longitude, lookAhead, displayBearing);
+			state.map.setView([camera.latitude, camera.longitude], 18, { animate: true });
+		}
 	}
 	updateScanPosition();
 	elements.navigationDistance.textContent = `${Math.round(remaining)} m`;
@@ -231,7 +235,7 @@ async function toggleNavigation() {
 		centerMapOnPosition(state.position, 18);
 		window.addEventListener('deviceorientation', handleOrientation, true);
 		window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-		updateNavigation(state.position);
+		updateNavigation(state.position, true);
 		showToast('導航已啟動，藍色箭頭會持續指向訊號點。');
 	} else {
 		state.map.dragging.enable();
