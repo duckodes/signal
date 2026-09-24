@@ -63,6 +63,7 @@ const state = {
 	scanTimer: null,
 	toastTimer: null
 	, locationRetry: false
+	, seenMissionTitles: []
 };
 
 function formatCoordinate(value, positive, negative) {
@@ -412,12 +413,16 @@ async function scanSignal() {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				latitude: state.position.coords.latitude,
-				longitude: state.position.coords.longitude
+				longitude: state.position.coords.longitude,
+				excludeTitles: state.seenMissionTitles
 			})
 		});
 		if (!response.ok) throw new Error('mission request failed');
 		const mission = await response.json();
 		state.mission = mission;
+		if (mission.title && !state.seenMissionTitles.includes(mission.title)) {
+			state.seenMissionTitles.push(mission.title);
+		}
 		elements.missionState.classList.add('is-hidden');
 		elements.missionContent.classList.remove('is-hidden');
 		elements.missionCount.textContent = 'SIGNAL FOUND';
