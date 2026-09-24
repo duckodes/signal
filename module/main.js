@@ -491,6 +491,7 @@ async function scanSignal() {
 			body: JSON.stringify({
 				latitude: state.position.coords.latitude,
 				longitude: state.position.coords.longitude,
+				xp: state.xp,
 				excludeTitles: state.seenMissionTitles
 			})
 		});
@@ -506,7 +507,9 @@ async function scanSignal() {
 		elements.missionCount.classList.add('is-found');
 		elements.missionType.textContent = mission.type;
 		elements.missionTitle.textContent = mission.title;
-		elements.missionDescription.textContent = `${mission.description}（${mission.proofPrompt}）`;
+		elements.missionDescription.textContent = mission.proofType === 'arrival'
+			? mission.description
+			: `${mission.description}（${mission.proofPrompt}）`;
 		elements.missionDistance.textContent = `距離你 ${mission.distance} m`;
 		if (state.map) {
 			if (state.missionMarker) state.missionMarker.remove();
@@ -514,10 +517,14 @@ async function scanSignal() {
 			state.map.fitBounds([[state.position.coords.latitude, state.position.coords.longitude], [mission.target.latitude, mission.target.longitude]], { padding: [30, 30] });
 			planRoute(mission);
 		}
-		elements.verificationNote.textContent = `請前往 ${mission.placeName} 附近（${mission.distance} m 內），抵達後拍照驗證。`;
+		elements.verificationNote.textContent = mission.proofType === 'arrival'
+			? `請前往 ${mission.placeName} 附近（${mission.distance} m 內）即可完成。`
+			: `請前往 ${mission.placeName} 附近（${mission.distance} m 內）完成證明。`;
 		elements.rewardValue.textContent = `+ ${mission.reward} XP`;
 		elements.completeButton.disabled = false;
-		elements.completeButton.innerHTML = '拍照並驗證任務 <span>⌖</span>';
+		elements.completeButton.innerHTML = mission.proofType === 'arrival'
+			? '抵達並完成任務 <span>⌖</span>'
+			: '拍照並驗證任務 <span>⌖</span>';
 		elements.navigateButton.disabled = false;
 		elements.scanButton.classList.remove('is-scanning');
 		elements.scanButton.innerHTML = '<span class="button-icon">↻</span> 重新探測';
@@ -542,8 +549,13 @@ function readImageAsDataUrl(file) {
 	});
 }
 
-async function verifyMissionPhoto(file) {
+async function verifyMissionPhoto(fileOrFiles) {
 	if (!state.mission || !navigator.geolocation) return;
+	const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+	if (files.length > 2) {
+		showToast('最多只能上傳兩張照片。', 'error');
+		return;
+	}
 	elements.completeButton.disabled = true;
 	elements.completeButton.innerHTML = '<span class="loader"></span> AI 正在判斷照片';
 	navigator.geolocation.getCurrentPosition(position => {
@@ -556,26 +568,17 @@ async function verifyMissionPhoto(file) {
 			showToast(`還差 ${Math.round(distance)} m，請繼續前往訊號點。`, 'error');
 			return;
 		}
-		readImageAsDataUrl(file).then(image => fetch(verificationApiUrl, {
+		Promise.all(files.map(readImageAsDataUrl)).then(images => fetch(verificationApiUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ mission: state.mission, image })
+			body: JSON.stringify({ mission: state.mission, images })
 		})).then(response => {
 			if (!response.ok) throw new Error('verification request failed');
 			return response.json();
 		}).then(result => {
 			if (!result.completed) throw new Error(result.feedback || '照片未通過判定');
-			state.completed += 1;
-			state.distance += state.mission.distance / 1000;
-			state.xp += state.mission.reward;
-			elements.completedCount.textContent = String(state.completed).padStart(2, '0');
-			elements.distanceCount.textContent = state.distance.toFixed(1);
-			elements.xpCount.textContent = String(state.xp).padStart(3, '0');
-			elements.missionProgress.textContent = '1 / 1';
-			elements.progressBar.style.width = '100%';
-			elements.completeButton.innerHTML = '任務完成 <span>✓</span>';
+			finishMission();
 			elements.verificationNote.textContent = result.feedback;
-			showToast(`任務完成，已獲得 ${state.mission.reward} XP。`);
 		}).catch(error => {
 			elements.completeButton.disabled = false;
 			elements.completeButton.innerHTML = '拍照並驗證任務 <span>⌖</span>';
@@ -587,8 +590,43 @@ async function verifyMissionPhoto(file) {
 
 function completeMission() {
 	if (!state.mission || elements.completeButton.disabled) return;
+	if (state.mission.proofType === 'arrival' || state.mission.proofType === 'observation') {
+		completeByLocation();
+		return;
+	}
 	elements.cameraModal.classList.remove('is-hidden');
 	elements.cameraStatus.textContent = '點擊「開啟相機」以請求權限';
+}
+
+function completeByLocation() {
+	elements.completeButton.disabled = true;
+	elements.completeButton.innerHTML = '<span class="loader"></span> 正在確認位置';
+	navigator.geolocation.getCurrentPosition(position => {
+		const current = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+		const distance = distanceBetween(current, state.mission.target);
+		if (distance > 60) {
+			elements.completeButton.disabled = false;
+			elements.completeButton.innerHTML = '抵達並完成任務 <span>⌖</span>';
+			elements.verificationNote.textContent = `尚未抵達目標，還有 ${Math.round(distance)} m。`;
+			return;
+		}
+		finishMission();
+	}, handleLocationError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
+function finishMission() {
+	state.completed += 1;
+	state.distance += state.mission.distance / 1000;
+	state.xp += state.mission.reward;
+	elements.completedCount.textContent = String(state.completed).padStart(2, '0');
+	elements.distanceCount.textContent = state.distance.toFixed(1);
+	elements.xpCount.textContent = String(state.xp).padStart(3, '0');
+	elements.missionProgress.textContent = '1 / 1';
+	elements.progressBar.style.width = '100%';
+	elements.completeButton.disabled = true;
+	elements.completeButton.innerHTML = '任務完成 <span>✓</span>';
+	elements.verificationNote.textContent = '任務完成，現場條件已確認。';
+	showToast(`任務完成，已獲得 ${state.mission.reward} XP。`);
 }
 
 function stopCamera() {
@@ -666,10 +704,10 @@ elements.cameraFallback.addEventListener('click', () => {
 	elements.missionProofInput.click();
 });
 elements.missionProofInput.addEventListener('change', event => {
-	const [file] = event.target.files;
-	if (file) {
+	const files = Array.from(event.target.files).slice(0, 2);
+	if (files.length) {
 		closeCamera();
-		verifyMissionPhoto(file);
+		verifyMissionPhoto(files);
 	}
 	event.target.value = '';
 });
