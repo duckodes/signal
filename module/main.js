@@ -64,6 +64,7 @@ const state = {
 	navigationActive: false,
 	navigationCenterOnUser: false,
 	recenterUntil: 0,
+	mapHeading: null,
 	heading: null,
 	headingSource: 'none',
 	manualPan: false,
@@ -123,6 +124,19 @@ function maneuverLabel(relativeBearing) {
 	return '掉頭';
 }
 
+function updateMapHeading(bearing) {
+	const targetHeading = -bearing;
+	if (!Number.isFinite(state.mapHeading)) {
+		state.mapHeading = targetHeading;
+	} else {
+		let delta = targetHeading - state.mapHeading;
+		while (delta > 180) delta -= 360;
+		while (delta < -180) delta += 360;
+		state.mapHeading += delta;
+	}
+	elements.mapCanvas.style.setProperty('--map-heading', `${state.mapHeading}deg`);
+}
+
 function updateScanPosition() {
 	if (!state.map || !state.position) return;
 	const point = state.map.latLngToContainerPoint([state.position.coords.latitude, state.position.coords.longitude]);
@@ -142,7 +156,7 @@ function updateNavigation(position, keepCenteredView = false) {
 	}
 	const displayBearing = state.heading ?? targetBearing;
 	const relativeBearing = (targetBearing - displayBearing + 540) % 360 - 180;
-	elements.mapCanvas.style.setProperty('--map-heading', `${-displayBearing}deg`);
+	updateMapHeading(displayBearing);
 	if (state.userMarker) state.userMarker.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow) state.navigationArrow.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow?.setIcon) state.navigationArrow.setIcon(window.L.divIcon({ className: 'navigation-arrow', html: `<span style="transform: rotate(${displayBearing}deg)"></span>`, iconSize: [42, 42], iconAnchor: [21, 21] }));
@@ -221,6 +235,7 @@ async function toggleNavigation() {
 	state.navigationActive = !state.navigationActive;
 	if (state.navigationActive) {
 		state.navigationCenterOnUser = true;
+		state.mapHeading = null;
 		await enableOrientation();
 		state.map.dragging.disable();
 		elements.mapCanvas.addEventListener('pointerdown', navigationPointerDown);
@@ -257,6 +272,7 @@ async function toggleNavigation() {
 		elements.navigateButton.innerHTML = '<span class="button-icon">➤</span> 開始導航';
 		elements.radarStage.classList.remove('is-navigation');
 		elements.mapCanvas.style.setProperty('--map-heading', '0deg');
+		state.mapHeading = null;
 		state.navigationCenterOnUser = false;
 		state.recenterUntil = 0;
 		window.removeEventListener('deviceorientation', handleOrientation, true);
