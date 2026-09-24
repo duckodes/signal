@@ -1,34 +1,11 @@
-const missions = [
-	{
-		type: 'FIELD NOTE',
-		title: '尋找城市的呼吸',
-		description: '走到訊號標記附近，找到一個能聽見環境聲音的地方，留下你的觀察。',
-		reward: 120,
-		distance: 120,
-		bearing: 35
-	},
-	{
-		type: 'LOCAL TRACE',
-		title: '沿著光的方向',
-		description: '在附近找到一個被陽光照亮的細節，讓這個瞬間成為你的現場紀錄。',
-		reward: 180,
-		distance: 180,
-		bearing: 160
-	},
-	{
-		type: 'HIDDEN SIGNAL',
-		title: '回收遺失的訊號',
-		description: '走近訊號源，觀察周圍最不尋常的物件，找出它和這個地方的關聯。',
-		reward: 240,
-		distance: 240,
-		bearing: 285
-	}
-];
+const missionApiUrl = 'https://getfieldmission-uqj7m73rbq-uc.a.run.app';
+const verificationApiUrl = 'https://verifyfieldmission-uqj7m73rbq-uc.a.run.app';
 
 const elements = {
 	locationButton: document.querySelector('#location-button'),
 	scanButton: document.querySelector('#scan-button'),
 	completeButton: document.querySelector('#complete-button'),
+	missionProofInput: document.querySelector('#mission-proof-input'),
 	locationMessage: document.querySelector('#location-message'),
 	syncLabel: document.querySelector('#sync-label'),
 	coordinates: document.querySelector('#coordinates'),
@@ -422,15 +399,24 @@ function requestLocation() {
 	});
 }
 
-function scanSignal() {
+async function scanSignal() {
 	if (!state.position || elements.scanButton.classList.contains('is-scanning')) return;
 
 	elements.scanButton.classList.add('is-scanning');
 	elements.scanButton.innerHTML = '<span class="loader"></span> 掃描中...';
-	elements.syncLabel.textContent = '正在掃描';
+	elements.syncLabel.textContent = '正在掃描附近任務';
 	elements.radarStage.classList.add('is-scanning');
-	state.scanTimer = window.setTimeout(() => {
-		const mission = missions[state.completed % missions.length];
+	try {
+		const response = await fetch(missionApiUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				latitude: state.position.coords.latitude,
+				longitude: state.position.coords.longitude
+			})
+		});
+		if (!response.ok) throw new Error('mission request failed');
+		const mission = await response.json();
 		state.mission = mission;
 		elements.missionState.classList.add('is-hidden');
 		elements.missionContent.classList.remove('is-hidden');
@@ -438,54 +424,88 @@ function scanSignal() {
 		elements.missionCount.classList.add('is-found');
 		elements.missionType.textContent = mission.type;
 		elements.missionTitle.textContent = mission.title;
-		elements.missionDescription.textContent = mission.description;
+		elements.missionDescription.textContent = `${mission.description}（${mission.proofPrompt}）`;
 		elements.missionDistance.textContent = `距離你 ${mission.distance} m`;
-		mission.target = destinationPoint(state.position.coords.latitude, state.position.coords.longitude, mission.distance, mission.bearing);
 		if (state.map) {
 			if (state.missionMarker) state.missionMarker.remove();
 			state.missionMarker = window.L.marker([mission.target.latitude, mission.target.longitude], { icon: window.L.divIcon({ className: 'mission-node', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(state.map).bindTooltip('訊號點', { permanent: true, direction: 'top' });
 			state.map.fitBounds([[state.position.coords.latitude, state.position.coords.longitude], [mission.target.latitude, mission.target.longitude]], { padding: [30, 30] });
 			planRoute(mission);
 		}
-		elements.verificationNote.textContent = `請前往訊號點（${mission.distance} m 內），抵達後重新驗證你的所在位置。`;
+		elements.verificationNote.textContent = `請前往 ${mission.placeName} 附近（${mission.distance} m 內），抵達後拍照驗證。`;
 		elements.rewardValue.textContent = `+ ${mission.reward} XP`;
 		elements.completeButton.disabled = false;
+		elements.completeButton.innerHTML = '拍照並驗證任務 <span>⌖</span>';
 		elements.navigateButton.disabled = false;
 		elements.scanButton.classList.remove('is-scanning');
 		elements.scanButton.innerHTML = '<span class="button-icon">↻</span> 重新探測';
 		elements.syncLabel.textContent = '訊號已鎖定';
 		elements.radarStage.classList.remove('is-scanning');
 		showToast('發現新訊號，任務已解鎖。');
-	}, 1800);
+	} catch {
+		elements.scanButton.classList.remove('is-scanning');
+		elements.scanButton.innerHTML = '<span class="button-icon">⌁</span> 探測訊號';
+		elements.radarStage.classList.remove('is-scanning');
+		elements.syncLabel.textContent = '任務服務暫時離線';
+		showToast('附近任務暫時無法取得，請稍後再試。', 'error');
+	}
 }
 
-function completeMission() {
+function readImageAsDataUrl(file) {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result);
+		reader.onerror = reject;
+		reader.readAsDataURL(file);
+	});
+}
+
+async function verifyMissionPhoto(file) {
 	if (!state.mission || !navigator.geolocation) return;
 	elements.completeButton.disabled = true;
-	elements.completeButton.innerHTML = '<span class="loader"></span> 正在驗證位置';
+	elements.completeButton.innerHTML = '<span class="loader"></span> AI 正在判斷照片';
 	navigator.geolocation.getCurrentPosition(position => {
 		const current = { latitude: position.coords.latitude, longitude: position.coords.longitude };
 		const distance = distanceBetween(current, state.mission.target);
 		if (distance > 60) {
 			elements.completeButton.disabled = false;
-			elements.completeButton.innerHTML = '驗證現場並領取獎勵 <span>⌖</span>';
+			elements.completeButton.innerHTML = '拍照並驗證任務 <span>⌖</span>';
 			elements.verificationNote.textContent = `尚未抵達訊號點，目前還有 ${Math.round(distance)} m。`;
 			showToast(`還差 ${Math.round(distance)} m，請繼續前往訊號點。`, 'error');
 			return;
 		}
-	state.completed += 1;
-	state.distance += state.mission.distance / 1000;
-	state.xp += state.mission.reward;
-	elements.completedCount.textContent = String(state.completed).padStart(2, '0');
-	elements.distanceCount.textContent = state.distance.toFixed(1);
-	elements.xpCount.textContent = String(state.xp).padStart(3, '0');
-	elements.missionProgress.textContent = '1 / 1';
-	elements.progressBar.style.width = '100%';
-	elements.completeButton.disabled = true;
-		elements.completeButton.innerHTML = '任務完成 <span>✓</span>';
-		elements.verificationNote.textContent = '現場位置驗證成功，獎勵已加入你的紀錄。';
-		showToast(`現場驗證成功，已獲得 ${state.mission.reward} XP。`);
+		readImageAsDataUrl(file).then(image => fetch(verificationApiUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ mission: state.mission, image })
+		})).then(response => {
+			if (!response.ok) throw new Error('verification request failed');
+			return response.json();
+		}).then(result => {
+			if (!result.completed) throw new Error(result.feedback || '照片未通過判定');
+			state.completed += 1;
+			state.distance += state.mission.distance / 1000;
+			state.xp += state.mission.reward;
+			elements.completedCount.textContent = String(state.completed).padStart(2, '0');
+			elements.distanceCount.textContent = state.distance.toFixed(1);
+			elements.xpCount.textContent = String(state.xp).padStart(3, '0');
+			elements.missionProgress.textContent = '1 / 1';
+			elements.progressBar.style.width = '100%';
+			elements.completeButton.innerHTML = '任務完成 <span>✓</span>';
+			elements.verificationNote.textContent = result.feedback;
+			showToast(`任務完成，已獲得 ${state.mission.reward} XP。`);
+		}).catch(error => {
+			elements.completeButton.disabled = false;
+			elements.completeButton.innerHTML = '拍照並驗證任務 <span>⌖</span>';
+			elements.verificationNote.textContent = error.message;
+			showToast(error.message, 'error');
+		});
 	}, handleLocationError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
+function completeMission() {
+	if (!state.mission || elements.completeButton.disabled) return;
+	elements.missionProofInput.click();
 }
 
 function showToast(message, type = 'success') {
@@ -498,5 +518,10 @@ function showToast(message, type = 'success') {
 elements.locationButton.addEventListener('click', requestLocation);
 elements.scanButton.addEventListener('click', scanSignal);
 elements.completeButton.addEventListener('click', completeMission);
+elements.missionProofInput.addEventListener('change', event => {
+	const [file] = event.target.files;
+	if (file) verifyMissionPhoto(file);
+	event.target.value = '';
+});
 elements.navigateButton.addEventListener('click', toggleNavigation);
 elements.recenterButton.addEventListener('click', recenterMap);
