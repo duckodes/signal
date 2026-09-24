@@ -62,6 +62,7 @@ const state = {
 	navigationWatchId: null,
 	navigationArrow: null,
 	navigationActive: false,
+	navigationCenterOnUser: false,
 	heading: null,
 	headingSource: 'none',
 	manualPan: false,
@@ -128,7 +129,7 @@ function updateScanPosition() {
 	elements.radarStage.style.setProperty('--scan-y', `${point.y}px`);
 }
 
-function updateNavigation(position) {
+function updateNavigation(position, keepCenteredView = false) {
 	state.position = position;
 	const current = { latitude: position.coords.latitude, longitude: position.coords.longitude };
 	const target = state.mission.target;
@@ -144,10 +145,8 @@ function updateNavigation(position) {
 	if (state.userMarker) state.userMarker.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow) state.navigationArrow.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow?.setIcon) state.navigationArrow.setIcon(window.L.divIcon({ className: 'navigation-arrow', html: `<span style="transform: rotate(${displayBearing}deg)"></span>`, iconSize: [42, 42], iconAnchor: [21, 21] }));
-	if (state.navigationActive && state.map && !state.manualPan) {
-		const lookAhead = Math.min(100, Math.max(65, remaining * 0.45));
-		const camera = destinationPoint(current.latitude, current.longitude, lookAhead, displayBearing);
-		state.map.setView([camera.latitude, camera.longitude], 18, { animate: true });
+	if (state.navigationActive && state.map && !state.manualPan && !keepCenteredView) {
+		state.map.setView([current.latitude, current.longitude], 18, { animate: false });
 	}
 	updateScanPosition();
 	elements.navigationDistance.textContent = `${Math.round(remaining)} m`;
@@ -185,7 +184,10 @@ function navigationPointerUp(event) {
 	state.panStart = null;
 	state.recenterTimer = window.setTimeout(() => {
 		state.manualPan = false;
-		if (state.position) updateNavigation(state.position);
+		if (state.position) {
+			centerMapOnPosition(state.position, 18);
+			updateNavigation(state.position, true);
+		}
 	}, 3500);
 }
 
@@ -210,6 +212,7 @@ async function toggleNavigation() {
 	if (!state.mission || !state.position || !state.map) return;
 	state.navigationActive = !state.navigationActive;
 	if (state.navigationActive) {
+		state.navigationCenterOnUser = true;
 		await enableOrientation();
 		state.map.dragging.disable();
 		elements.mapCanvas.addEventListener('pointerdown', navigationPointerDown);
@@ -223,9 +226,10 @@ async function toggleNavigation() {
 		elements.navigateButton.classList.add('is-active');
 		elements.navigateButton.innerHTML = '<span class="button-icon">■</span> 結束導航';
 		elements.radarStage.classList.add('is-navigation');
+		centerMapOnPosition(state.position, 18);
 		window.addEventListener('deviceorientation', handleOrientation, true);
 		window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-		updateNavigation(state.position);
+		updateNavigation(state.position, true);
 		showToast('導航已啟動，藍色箭頭會持續指向訊號點。');
 	} else {
 		state.map.dragging.enable();
@@ -245,6 +249,7 @@ async function toggleNavigation() {
 		elements.navigateButton.innerHTML = '<span class="button-icon">➤</span> 開始導航';
 		elements.radarStage.classList.remove('is-navigation');
 		elements.mapCanvas.style.setProperty('--map-heading', '0deg');
+		state.navigationCenterOnUser = false;
 		window.removeEventListener('deviceorientation', handleOrientation, true);
 		window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
 		state.heading = null;
@@ -255,10 +260,25 @@ async function toggleNavigation() {
 function recenterMap() {
 	if (!state.position || !state.map) return;
 	state.manualPan = false;
+	state.navigationCenterOnUser = state.navigationActive;
 	window.clearTimeout(state.recenterTimer);
-	if (state.navigationActive) updateNavigation(state.position);
-	else state.map.setView([state.position.coords.latitude, state.position.coords.longitude], 16, { animate: true });
+	if (state.navigationActive) {
+		centerMapOnPosition(state.position, 18);
+		updateNavigation(state.position, true);
+	}
+	else centerMapOnPosition(state.position, 16);
 	showToast('已回到目前位置。');
+}
+
+function centerMapOnPosition(position, zoom) {
+	if (!state.map || !position) return;
+	const { latitude, longitude } = position.coords;
+	state.map.stop();
+	state.map.invalidateSize({ pan: false, animate: false });
+	state.map.setView([latitude, longitude], zoom, {
+		animate: true,
+		duration: 0.7
+	});
 }
 
 function createMap(latitude, longitude) {
