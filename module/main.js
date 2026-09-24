@@ -66,6 +66,8 @@ const state = {
 	navigationCenterOnUser: false,
 	recenterUntil: 0,
 	mapHeading: null,
+	mapHeadingTarget: null,
+	mapHeadingFrame: null,
 	heading: null,
 	headingSource: 'none',
 	manualPan: false,
@@ -129,13 +131,29 @@ function updateMapHeading(bearing) {
 	const targetHeading = -bearing;
 	if (!Number.isFinite(state.mapHeading)) {
 		state.mapHeading = targetHeading;
-	} else {
-		let delta = targetHeading - state.mapHeading;
-		while (delta > 180) delta -= 360;
-		while (delta < -180) delta += 360;
-		state.mapHeading += delta;
+		state.mapHeadingTarget = targetHeading;
+		elements.mapCanvas.style.setProperty('--map-heading', `${state.mapHeading}deg`);
+		return;
 	}
-	elements.mapCanvas.style.setProperty('--map-heading', `${state.mapHeading}deg`);
+	if (!Number.isFinite(state.mapHeadingTarget)) state.mapHeadingTarget = state.mapHeading;
+	let delta = targetHeading - state.mapHeadingTarget;
+	while (delta > 180) delta -= 360;
+	while (delta < -180) delta += 360;
+	state.mapHeadingTarget += delta;
+	if (!state.mapHeadingFrame) {
+		const animateHeading = () => {
+			state.mapHeadingFrame = null;
+			const difference = state.mapHeadingTarget - state.mapHeading;
+			state.mapHeading += difference * .18;
+			if (Math.abs(difference) < .05) {
+				state.mapHeading = state.mapHeadingTarget;
+			} else {
+				state.mapHeadingFrame = window.requestAnimationFrame(animateHeading);
+			}
+			elements.mapCanvas.style.setProperty('--map-heading', `${state.mapHeading}deg`);
+		};
+		state.mapHeadingFrame = window.requestAnimationFrame(animateHeading);
+	}
 }
 
 function updateScanPosition() {
@@ -237,6 +255,7 @@ async function toggleNavigation() {
 	if (state.navigationActive) {
 		state.navigationCenterOnUser = true;
 		state.mapHeading = null;
+		state.mapHeadingTarget = null;
 		await enableOrientation();
 		state.map.dragging.disable();
 		elements.mapCanvas.addEventListener('pointerdown', navigationPointerDown);
@@ -274,6 +293,9 @@ async function toggleNavigation() {
 		elements.radarStage.classList.remove('is-navigation');
 		elements.mapCanvas.style.setProperty('--map-heading', '0deg');
 		state.mapHeading = null;
+		state.mapHeadingTarget = null;
+		if (state.mapHeadingFrame) window.cancelAnimationFrame(state.mapHeadingFrame);
+		state.mapHeadingFrame = null;
 		state.navigationCenterOnUser = false;
 		state.recenterUntil = 0;
 		window.removeEventListener('deviceorientation', handleOrientation, true);
