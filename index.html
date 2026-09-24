@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#101b1e">
+    <title>FIELD / 實境訊號任務</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="ambient-glow ambient-glow--one"></div>
+    <div class="ambient-glow ambient-glow--two"></div>
+
+    <header class="topbar">
+        <a class="brand" href="./" aria-label="FIELD 首頁">
+            <span class="brand-mark"><i></i><i></i><i></i></span>
+            <span>FIELD<span class="brand-slash">/</span></span>
+        </a>
+        <div class="topbar-actions">
+            <span class="sync-state"><span class="status-dot"></span><span id="sync-label">等待定位</span></span>
+            <button class="button button--location topbar-location" id="location-button" type="button">
+                <span class="button-icon">⌖</span> 開啟定位
+            </button>
+        </div>
+    </header>
+
+    <main class="shell">
+        <section class="intro fade-in">
+            <p class="eyebrow"><span>LIVE FIELD EXPERIENCE</span><span class="eyebrow-line"></span></p>
+            <h1>讓城市，<em>回應你。</em></h1>
+            <p class="intro-copy">開啟定位，接收附近的未知訊號。每一次出發，都是一場只屬於此刻的現實任務。</p>
+        </section>
+
+        <section class="dashboard">
+            <article class="panel location-panel fade-in fade-in--delay-1">
+                <div class="panel-header">
+                    <div>
+                        <p class="panel-kicker">01 / YOUR POSITION</p>
+                        <h2>目前位置</h2>
+                    </div>
+                    <span class="live-pill"><span class="status-dot"></span> LIVE</span>
+                </div>
+                <div class="map-stage" id="radar-stage">
+                    <div class="map-canvas" id="map-canvas" aria-label="目前位置與附近道路地圖"></div>
+                    <div class="map-corner map-corner--tl"></div>
+                    <div class="map-corner map-corner--tr"></div>
+                    <div class="map-corner map-corner--bl"></div>
+                    <div class="map-corner map-corner--br"></div>
+                    <div class="map-fade map-fade--far"></div>
+                    <div class="map-fade map-fade--sides"></div>
+                    <div class="scan-effect" aria-hidden="true">
+                        <span class="scan-ring scan-ring--outer"></span>
+                        <span class="scan-ring scan-ring--inner"></span>
+                        <span class="scan-cross scan-cross--horizontal"></span>
+                        <span class="scan-cross scan-cross--vertical"></span>
+                        <span class="scan-bracket scan-bracket--tl"></span>
+                        <span class="scan-bracket scan-bracket--tr"></span>
+                        <span class="scan-bracket scan-bracket--bl"></span>
+                        <span class="scan-bracket scan-bracket--br"></span>
+                        <strong>SCANNING</strong>
+                    </div>
+                    <div class="map-hud map-hud--top"><span><i class="hud-pulse"></i> TACTICAL GRID</span><strong>SECTOR 07 / LIVE</strong></div>
+                    <div class="map-hud map-hud--bottom"><span id="map-coordinates">GPS // WAITING FOR LOCK</span><strong><i></i> SIGNAL LINK</strong></div>
+                    <div class="navigation-overlay is-hidden" id="navigation-overlay">
+                        <span class="navigation-state"><i></i> NAVIGATION ACTIVE</span>
+                        <strong id="navigation-distance">-- m</strong>
+                        <span id="navigation-direction">前方</span>
+                    </div>
+                    <div class="map-actions">
+                        <button class="map-action" id="recenter-button" type="button" disabled title="回到目前位置">◎ <span>目前位置</span></button>
+                        <button class="map-action map-action--navigate" id="navigate-button" type="button" disabled><span class="button-icon">➤</span> 開始導航</button>
+                    </div>
+                    <div class="map-status is-hidden" id="map-status">道路圖暫時無法載入，定位與任務驗證仍可使用。</div>
+                    <div class="radar-empty" id="radar-empty">
+                        <span class="location-pin">⌖</span>
+                        <strong>定位尚未啟用</strong>
+                        <span>允許瀏覽器存取位置後開始</span>
+                    </div>
+                </div>
+                <div class="coordinates" id="coordinates">
+                    <span class="coordinate-value">--° --′ --″</span>
+                    <span class="coordinate-label">LAT / LONG</span>
+                </div>
+                <button class="button button--signal map-scan-button" id="scan-button" type="button" disabled>
+                    <span class="button-icon">⌁</span> 探測訊號
+                </button>
+                <p class="helper-text" id="location-message">需要定位權限，才能捕捉你所在區域的訊號。</p>
+            </article>
+
+            <article class="panel mission-panel fade-in fade-in--delay-2">
+                <div class="panel-header">
+                    <div>
+                        <p class="panel-kicker">02 / ACTIVE MISSION</p>
+                        <h2>現場任務</h2>
+                    </div>
+                    <span class="mission-count" id="mission-count">LOCKED</span>
+                </div>
+                <div class="mission-state" id="mission-state">
+                    <div class="state-icon">◌</div>
+                    <h3>還沒有訊號</h3>
+                    <p>完成定位後，點擊右上角的「探測訊號」，尋找你的第一個任務。</p>
+                </div>
+                <div class="mission-content is-hidden" id="mission-content">
+                    <div class="mission-meta"><span id="mission-type">FIELD NOTE</span><span id="mission-distance">距離你 0 m</span></div>
+                    <h3 id="mission-title">--</h3>
+                    <p id="mission-description">--</p>
+                    <div class="verification-note" id="verification-note">請前往訊號點，抵達後重新驗證你的所在位置。</div>
+                    <div class="route-info" id="route-info">
+                        <div><span>ROUTE</span><strong id="route-status">計算中...</strong></div>
+                        <div><span>距離</span><strong id="route-distance">--</strong></div>
+                        <div><span>步行約</span><strong id="route-time">--</strong></div>
+                    </div>
+                    <div class="progress-row"><span>任務進度</span><strong id="mission-progress">0 / 1</strong></div>
+                    <div class="progress-track"><span id="mission-progress-bar"></span></div>
+                    <button class="button button--complete" id="complete-button" type="button" disabled>驗證現場並領取獎勵 <span>⌖</span></button>
+                </div>
+                <div class="nearby-places is-hidden" id="nearby-places"><span class="places-label">附近地標</span><div id="places-list"></div></div>
+                <div class="reward-strip">
+                    <span class="reward-label">本次獎勵</span>
+                    <strong><span class="reward-gem">✦</span><span id="reward-value">+ 120 XP</span></strong>
+                </div>
+            </article>
+        </section>
+
+        <section class="stats-row fade-in fade-in--delay-3" aria-label="玩家資料">
+            <div class="stat"><span class="stat-label">已完成任務</span><strong id="completed-count">00</strong><span class="stat-unit">MISSIONS</span></div>
+            <div class="stat"><span class="stat-label">探索里程</span><strong id="distance-count">0.0</strong><span class="stat-unit">KM</span></div>
+            <div class="stat"><span class="stat-label">累積經驗</span><strong id="xp-count">000</strong><span class="stat-unit">XP</span></div>
+            <div class="quote-stat"><span>「每個轉角，都可能藏著下一個答案。」</span><small>FIELD LOG / 001</small></div>
+        </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script type="module" src="./module/main.js"></script>
+</body>
+</html>
