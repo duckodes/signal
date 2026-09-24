@@ -609,7 +609,10 @@ elements.scanButton.addEventListener('click', scanSignal);
 elements.completeButton.addEventListener('click', completeMission);
 elements.cameraCapture.addEventListener('click', captureCameraPhoto);
 elements.cameraClose.addEventListener('click', closeCamera);
-elements.cameraFallback.addEventListener('click', () => elements.missionProofInput.click());
+elements.cameraFallback.addEventListener('click', () => {
+	closeCamera();
+	elements.missionProofInput.click();
+});
 elements.missionProofInput.addEventListener('change', event => {
 	const [file] = event.target.files;
 	if (file) {
