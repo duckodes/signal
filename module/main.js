@@ -61,6 +61,7 @@ const elements = {
 	, recenterButton: document.querySelector('#recenter-button')
 	, navigationOverlay: document.querySelector('#navigation-overlay')
 	, navigationDistance: document.querySelector('#navigation-distance')
+	, navigationManeuver: document.querySelector('#navigation-maneuver')
 	, navigationDirection: document.querySelector('#navigation-direction')
 };
 
@@ -78,6 +79,7 @@ const state = {
 	navigationArrow: null,
 	navigationActive: false,
 	heading: null,
+	headingSource: 'none',
 	manualPan: false,
 	panStart: null,
 	recenterTimer: null,
@@ -125,6 +127,14 @@ function directionLabel(degrees) {
 	return ['北方', '東北方', '東方', '東南方', '南方', '西南方', '西方', '西北方'][Math.round(degrees / 45) % 8];
 }
 
+function maneuverLabel(relativeBearing) {
+	const degrees = Math.abs(relativeBearing);
+	if (degrees <= 12) return '直走';
+	if (degrees <= 35) return relativeBearing < 0 ? '微偏左' : '微偏右';
+	if (degrees <= 110) return relativeBearing < 0 ? '左轉' : '右轉';
+	return '掉頭';
+}
+
 function updateScanPosition() {
 	if (!state.map || !state.position) return;
 	const point = state.map.latLngToContainerPoint([state.position.coords.latitude, state.position.coords.longitude]);
@@ -138,10 +148,14 @@ function updateNavigation(position) {
 	const target = state.mission.target;
 	const remaining = distanceBetween(current, target);
 	const targetBearing = bearingBetween(current, target);
-	if (Number.isFinite(position.coords.heading) && position.coords.speed > 0.5) state.heading = position.coords.heading;
+	if (Number.isFinite(position.coords.heading) && position.coords.speed > 0.5) {
+		state.heading = position.coords.heading;
+		state.headingSource = 'gps';
+	}
 	const displayBearing = state.heading ?? targetBearing;
 	const relativeBearing = (targetBearing - displayBearing + 540) % 360 - 180;
 	elements.mapCanvas.style.setProperty('--map-heading', `${-displayBearing}deg`);
+	if (state.userMarker) state.userMarker.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow) state.navigationArrow.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow?.setIcon) state.navigationArrow.setIcon(window.L.divIcon({ className: 'navigation-arrow', html: `<span style="transform: rotate(${displayBearing}deg)"></span>`, iconSize: [42, 42], iconAnchor: [21, 21] }));
 	if (state.navigationActive && state.map && !state.manualPan) {
@@ -151,6 +165,8 @@ function updateNavigation(position) {
 	}
 	updateScanPosition();
 	elements.navigationDistance.textContent = `${Math.round(remaining)} m`;
+	elements.navigationManeuver.textContent = maneuverLabel(relativeBearing);
+	elements.navigationManeuver.dataset.turn = relativeBearing < -12 ? 'left' : relativeBearing > 12 ? 'right' : 'straight';
 	elements.navigationDirection.textContent = `${directionLabel(targetBearing)} / ${Math.abs(Math.round(relativeBearing))}°`;
 }
 
@@ -191,13 +207,24 @@ function handleOrientation(event) {
 	if (typeof event.alpha !== 'number') return;
 	const compassHeading = event.webkitCompassHeading;
 	state.heading = Number.isFinite(compassHeading) ? compassHeading : (360 - event.alpha + 360) % 360;
+	state.headingSource = 'compass';
 	if (state.position && state.navigationActive) updateNavigation(state.position);
 }
 
-function toggleNavigation() {
+async function enableOrientation() {
+	if (typeof window.DeviceOrientationEvent?.requestPermission !== 'function') return true;
+	try {
+		return await window.DeviceOrientationEvent.requestPermission() === 'granted';
+	} catch {
+		return false;
+	}
+}
+
+async function toggleNavigation() {
 	if (!state.mission || !state.position || !state.map) return;
 	state.navigationActive = !state.navigationActive;
 	if (state.navigationActive) {
+		await enableOrientation();
 		state.map.dragging.disable();
 		elements.mapCanvas.addEventListener('pointerdown', navigationPointerDown);
 		elements.mapCanvas.addEventListener('pointermove', navigationPointerMove);
@@ -234,6 +261,8 @@ function toggleNavigation() {
 		elements.mapCanvas.style.setProperty('--map-heading', '0deg');
 		window.removeEventListener('deviceorientation', handleOrientation, true);
 		window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
+		state.heading = null;
+		state.headingSource = 'none';
 	}
 }
 
