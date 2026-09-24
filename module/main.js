@@ -63,6 +63,7 @@ const state = {
 	navigationArrow: null,
 	navigationActive: false,
 	navigationCenterOnUser: false,
+	recenterUntil: 0,
 	heading: null,
 	headingSource: 'none',
 	manualPan: false,
@@ -145,7 +146,8 @@ function updateNavigation(position, keepCenteredView = false) {
 	if (state.userMarker) state.userMarker.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow) state.navigationArrow.setLatLng([current.latitude, current.longitude]);
 	if (state.navigationArrow?.setIcon) state.navigationArrow.setIcon(window.L.divIcon({ className: 'navigation-arrow', html: `<span style="transform: rotate(${displayBearing}deg)"></span>`, iconSize: [42, 42], iconAnchor: [21, 21] }));
-	if (state.navigationActive && state.map && !state.manualPan && !keepCenteredView) {
+	if (state.navigationActive && state.map && !state.manualPan &&
+		!keepCenteredView && Date.now() >= state.recenterUntil) {
 		if (state.navigationCenterOnUser) {
 			state.map.setView([current.latitude, current.longitude], 18, { animate: false });
 		} else {
@@ -256,6 +258,7 @@ async function toggleNavigation() {
 		elements.radarStage.classList.remove('is-navigation');
 		elements.mapCanvas.style.setProperty('--map-heading', '0deg');
 		state.navigationCenterOnUser = false;
+		state.recenterUntil = 0;
 		window.removeEventListener('deviceorientation', handleOrientation, true);
 		window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
 		state.heading = null;
@@ -281,6 +284,7 @@ function centerMapOnPosition(position, zoom) {
 	const { latitude, longitude } = position.coords;
 	state.map.stop();
 	state.map.invalidateSize({ pan: false, animate: false });
+	state.recenterUntil = Date.now() + 900;
 	state.map.setView([latitude, longitude], zoom, {
 		animate: true,
 		duration: 0.7
