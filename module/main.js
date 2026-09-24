@@ -12,6 +12,7 @@ const elements = {
 	cameraStatus: document.querySelector('#camera-status'),
 	cameraCapture: document.querySelector('#camera-capture'),
 	cameraFallback: document.querySelector('#camera-fallback'),
+	cameraOpen: document.querySelector('#camera-open'),
 	cameraClose: document.querySelector('#camera-close'),
 	locationMessage: document.querySelector('#location-message'),
 	syncLabel: document.querySelector('#sync-label'),
@@ -564,7 +565,8 @@ async function verifyMissionPhoto(file) {
 
 function completeMission() {
 	if (!state.mission || elements.completeButton.disabled) return;
-	openCamera();
+	elements.cameraModal.classList.remove('is-hidden');
+	elements.cameraStatus.textContent = '點擊「開啟相機」以請求權限';
 }
 
 function stopCamera() {
@@ -574,6 +576,7 @@ function stopCamera() {
 	}
 	elements.cameraPreview.srcObject = null;
 	elements.cameraCapture.disabled = true;
+	elements.cameraOpen.disabled = false;
 }
 
 function closeCamera() {
@@ -583,9 +586,18 @@ function closeCamera() {
 
 async function openCamera() {
 	elements.cameraModal.classList.remove('is-hidden');
-	elements.cameraStatus.textContent = '正在啟動相機...';
+	elements.cameraStatus.textContent = '正在請求相機權限...';
+	elements.cameraOpen.disabled = true;
 	try {
 		if (!navigator.mediaDevices?.getUserMedia) throw new Error('此瀏覽器不支援頁面相機');
+		if (navigator.permissions?.query) {
+			try {
+				const permission = await navigator.permissions.query({ name: 'camera' });
+				if (permission.state === 'denied') throw new Error('相機權限已被拒絕');
+			} catch (permissionError) {
+				if (permissionError.message === '相機權限已被拒絕') throw permissionError;
+			}
+		}
 		state.cameraStream = await navigator.mediaDevices.getUserMedia({
 			video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
 			audio: false
@@ -596,6 +608,7 @@ async function openCamera() {
 		elements.cameraCapture.disabled = false;
 	} catch (error) {
 		elements.cameraStatus.textContent = '無法開啟頁面相機，請改用選擇照片。';
+		elements.cameraOpen.disabled = false;
 		showToast('相機權限被拒絕或目前環境不支援，已提供照片上傳。', 'error');
 	}
 }
@@ -624,6 +637,7 @@ elements.locationButton.addEventListener('click', requestLocation);
 elements.scanButton.addEventListener('click', scanSignal);
 elements.completeButton.addEventListener('click', completeMission);
 elements.cameraCapture.addEventListener('click', captureCameraPhoto);
+elements.cameraOpen.addEventListener('click', openCamera);
 elements.cameraClose.addEventListener('click', closeCamera);
 elements.cameraFallback.addEventListener('click', () => {
 	closeCamera();
