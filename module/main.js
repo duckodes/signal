@@ -1,5 +1,25 @@
 const missionApiUrl = 'https://getfieldmission-uqj7m73rbq-uc.a.run.app';
 const verificationApiUrl = 'https://verifyfieldmission-uqj7m73rbq-uc.a.run.app';
+const fieldClientId = (() => {
+	const storageKey = 'field-client-id';
+	try {
+		const existingId = window.localStorage.getItem(storageKey);
+		if (existingId) return existingId;
+		const newId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+		window.localStorage.setItem(storageKey, newId);
+		return newId;
+	} catch {
+		return `temporary-${Date.now()}-${Math.random()}`;
+	}
+})();
+const fieldStateStorageKey = `field-state-${fieldClientId}`;
+const savedFieldState = (() => {
+	try {
+		return JSON.parse(window.localStorage.getItem(fieldStateStorageKey) || '{}');
+	} catch {
+		return {};
+	}
+})();
 
 const elements = {
 	locationButton: document.querySelector('#location-button'),
@@ -53,9 +73,9 @@ const elements = {
 const state = {
 	position: null,
 	mission: null,
-	completed: 0,
-	distance: 0,
-	xp: 0,
+	completed: Number(savedFieldState.completed) || 0,
+	distance: Number(savedFieldState.distance) || 0,
+	xp: Number(savedFieldState.xp) || 0,
 	map: null,
 	userMarker: null,
 	missionMarker: null,
@@ -76,9 +96,28 @@ const state = {
 	scanTimer: null,
 	toastTimer: null
 	, locationRetry: false
-	, seenMissionTitles: []
+	, seenMissionTitles: Array.isArray(savedFieldState.seenMissionTitles)
+		? savedFieldState.seenMissionTitles.filter(title => typeof title === 'string')
+		: []
 	, cameraStream: null
 };
+
+function saveFieldState() {
+	try {
+		window.localStorage.setItem(fieldStateStorageKey, JSON.stringify({
+			completed: state.completed,
+			distance: state.distance,
+			xp: state.xp,
+			seenMissionTitles: state.seenMissionTitles
+		}));
+	} catch {}
+}
+
+function renderSavedFieldState() {
+	elements.completedCount.textContent = String(state.completed).padStart(2, '0');
+	elements.distanceCount.textContent = state.distance.toFixed(1);
+	elements.xpCount.textContent = String(state.xp).padStart(3, '0');
+}
 
 function formatCoordinate(value, positive, negative) {
 	const direction = value >= 0 ? positive : negative;
@@ -492,6 +531,7 @@ async function scanSignal() {
 				latitude: state.position.coords.latitude,
 				longitude: state.position.coords.longitude,
 				xp: state.xp,
+				clientId: fieldClientId,
 				excludeTitles: state.seenMissionTitles
 			})
 		});
@@ -500,6 +540,7 @@ async function scanSignal() {
 		state.mission = mission;
 		if (mission.title && !state.seenMissionTitles.includes(mission.title)) {
 			state.seenMissionTitles.push(mission.title);
+			saveFieldState();
 		}
 		elements.missionState.classList.add('is-hidden');
 		elements.missionContent.classList.remove('is-hidden');
@@ -621,6 +662,7 @@ function finishMission() {
 	elements.completedCount.textContent = String(state.completed).padStart(2, '0');
 	elements.distanceCount.textContent = state.distance.toFixed(1);
 	elements.xpCount.textContent = String(state.xp).padStart(3, '0');
+	saveFieldState();
 	elements.missionProgress.textContent = '1 / 1';
 	elements.progressBar.style.width = '100%';
 	elements.completeButton.disabled = true;
@@ -713,3 +755,4 @@ elements.missionProofInput.addEventListener('change', event => {
 });
 elements.navigateButton.addEventListener('click', toggleNavigation);
 elements.recenterButton.addEventListener('click', recenterMap);
+renderSavedFieldState();
