@@ -46,6 +46,8 @@ const elements = {
 	missionTitle: document.querySelector('#mission-title'),
 	missionDescription: document.querySelector('#mission-description'),
 	missionDistance: document.querySelector('#mission-distance'),
+	descriptionProof: document.querySelector('#description-proof'),
+	descriptionInput: document.querySelector('#description-input'),
 	missionProgress: document.querySelector('#mission-progress'),
 	progressBar: document.querySelector('#mission-progress-bar'),
 	rewardValue: document.querySelector('#reward-value'),
@@ -551,6 +553,8 @@ async function scanSignal() {
 		elements.missionDescription.textContent = mission.proofType === 'arrival'
 			? mission.description
 			: `${mission.description}（${mission.proofPrompt}）`;
+		elements.descriptionProof.classList.toggle('is-hidden', !requiresDescriptionProof());
+		if (requiresDescriptionProof()) elements.descriptionInput.value = '';
 		elements.missionDistance.textContent = `距離你 ${mission.distance} m`;
 		if (state.map) {
 			if (state.missionMarker) state.missionMarker.remove();
@@ -565,7 +569,9 @@ async function scanSignal() {
 		elements.completeButton.disabled = false;
 		elements.completeButton.innerHTML = mission.proofType === 'arrival' || mission.proofType === 'observation'
 			? '抵達並完成任務 <span>⌖</span>'
-			: '拍照並驗證任務 <span>⌖</span>';
+			: mission.proofType === 'description'
+				? '提交現場描述 <span>⌖</span>'
+				: '拍照並驗證任務 <span>⌖</span>';
 		elements.navigateButton.disabled = false;
 		elements.scanButton.classList.remove('is-scanning');
 		elements.scanButton.innerHTML = '<span class="button-icon">↻</span> 重新探測';
@@ -592,6 +598,10 @@ function readImageAsDataUrl(file) {
 
 function requiresPhotoProof() {
 	return ['photo', 'receipt'].includes(String(state.mission?.proofType || '').toLowerCase());
+}
+
+function requiresDescriptionProof() {
+	return String(state.mission?.proofType || '').toLowerCase() === 'description';
 }
 
 async function verifyMissionPhoto(fileOrFiles) {
@@ -638,8 +648,54 @@ async function verifyMissionPhoto(fileOrFiles) {
 	}, handleLocationError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
 
+function verifyMissionDescription() {
+	const answer = elements.descriptionInput.value.trim();
+	if (!answer) {
+		showToast('請先描述你在現場看到的線索。', 'error');
+		return;
+	}
+	elements.completeButton.disabled = true;
+	elements.completeButton.innerHTML = '<span class="loader"></span> 正在驗證描述';
+	navigator.geolocation.getCurrentPosition(position => {
+		const current = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+		const distance = distanceBetween(current, state.mission.target);
+		if (distance > 60) {
+			elements.completeButton.disabled = false;
+			elements.completeButton.innerHTML = '提交現場描述 <span>⌖</span>';
+			elements.verificationNote.textContent = `尚未抵達訊號點，目前還有 ${Math.round(distance)} m。`;
+			return;
+		}
+		fetch(verificationApiUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				mission: state.mission,
+				answer,
+				latitude: current.latitude,
+				longitude: current.longitude
+			})
+		}).then(response => {
+			if (!response.ok) throw new Error('描述驗證失敗，請再試一次');
+			return response.json();
+		}).then(result => {
+			if (!result.completed) throw new Error(result.feedback || '描述還不符合任務線索');
+			finishMission();
+			elements.verificationNote.textContent = result.feedback;
+		}).catch(error => {
+			elements.completeButton.disabled = false;
+			elements.completeButton.innerHTML = '提交現場描述 <span>⌖</span>';
+			elements.verificationNote.textContent = error.message;
+			showToast(error.message, 'error');
+		});
+	}, handleLocationError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
 function completeMission() {
 	if (!state.mission || elements.completeButton.disabled) return;
+	if (requiresDescriptionProof()) {
+		verifyMissionDescription();
+		return;
+	}
 	if (!requiresPhotoProof()) {
 		if (['arrival', 'observation'].includes(String(state.mission.proofType || '').toLowerCase())) {
 			completeByLocation();
