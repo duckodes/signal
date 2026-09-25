@@ -590,8 +590,12 @@ function readImageAsDataUrl(file) {
 	});
 }
 
+function requiresPhotoProof() {
+	return ['photo', 'receipt'].includes(String(state.mission?.proofType || '').toLowerCase());
+}
+
 async function verifyMissionPhoto(fileOrFiles) {
-	if (!state.mission || !navigator.geolocation) return;
+	if (!state.mission || !requiresPhotoProof() || !navigator.geolocation) return;
 	const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
 	if (files.length > 2) {
 		showToast('最多只能上傳兩張照片。', 'error');
@@ -612,7 +616,12 @@ async function verifyMissionPhoto(fileOrFiles) {
 		Promise.all(files.map(readImageAsDataUrl)).then(images => fetch(verificationApiUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ mission: state.mission, images })
+			body: JSON.stringify({
+				mission: state.mission,
+				images,
+				latitude: current.latitude,
+				longitude: current.longitude
+			})
 		})).then(response => {
 			if (!response.ok) throw new Error('verification request failed');
 			return response.json();
@@ -631,8 +640,10 @@ async function verifyMissionPhoto(fileOrFiles) {
 
 function completeMission() {
 	if (!state.mission || elements.completeButton.disabled) return;
-	if (state.mission.proofType === 'arrival' || state.mission.proofType === 'observation') {
-		completeByLocation();
+	if (!requiresPhotoProof()) {
+		if (['arrival', 'observation'].includes(String(state.mission.proofType || '').toLowerCase())) {
+			completeByLocation();
+		}
 		return;
 	}
 	elements.cameraModal.classList.remove('is-hidden');
@@ -640,6 +651,7 @@ function completeMission() {
 }
 
 function completeByLocation() {
+	if (!state.mission || requiresPhotoProof()) return;
 	elements.completeButton.disabled = true;
 	elements.completeButton.innerHTML = '<span class="loader"></span> 正在確認位置';
 	navigator.geolocation.getCurrentPosition(position => {
