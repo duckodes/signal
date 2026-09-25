@@ -563,7 +563,7 @@ async function scanSignal() {
 			: `請前往 ${mission.placeName} 附近（${mission.distance} m 內）完成證明。`;
 		elements.rewardValue.textContent = `+ ${mission.reward} XP`;
 		elements.completeButton.disabled = false;
-		elements.completeButton.innerHTML = mission.proofType === 'arrival'
+		elements.completeButton.innerHTML = mission.proofType === 'arrival' || mission.proofType === 'observation'
 			? '抵達並完成任務 <span>⌖</span>'
 			: '拍照並驗證任務 <span>⌖</span>';
 		elements.navigateButton.disabled = false;
